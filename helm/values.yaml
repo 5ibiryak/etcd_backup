@@ -1,0 +1,8 @@
+
+volumes: []
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}

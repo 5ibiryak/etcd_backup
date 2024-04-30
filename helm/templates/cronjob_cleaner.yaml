@@ -1,0 +1,89 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cleaner-backup-etcd
+spec:
+  schedule: "* 2 * * *"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  concurrencyPolicy: Allow
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: restic-cleaner-backup
+            image: restic/restic:0.16.4
+            env:
+            - name: RESTIC_PASSWORD_FILE
+              value: /root/passRepo
+            command: 
+            - restic
+            args:
+            - -r
+            - sftp:storage@rnd-storage-htz-01.gameteq.com:/storage/backups/etcd-qa
+            - --verbose 
+            - forget
+            - --keep-daily 
+            - "5"
+            - --keep-monthly 
+            - "1"
+            - --keep-yearly
+            - "1"
+            - --prune
+            volumeMounts:
+            - mountPath: /root/.ssh/id_rsa
+              name: ssh-key-volume
+              subPath: ssh-privatekey
+              readOnly: true
+            - mountPath: /root/.ssh/config
+              name: ssh-config-volume
+              subPath: config
+              readOnly: true
+            - mountPath: /root/.ssh/known_hosts
+              name: ssh-hosts-volume
+              subPath: known_hosts
+              readOnly: true
+            - mountPath: /root/passRepo
+              name: repo-key-volume
+              subPath: ssh-privatekey
+              readOnly: true
+          restartPolicy: OnFailure
+          hostNetwork: true
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                    - key: node-role.kubernetes.io/etcd-backup
+                      operator: Exists
+          imagePullSecrets:
+          - name: plariumsouth
+          tolerations:
+            - key: node-role.kubernetes.io/control-plane
+              effect: NoSchedule
+              operator: Exists
+            - key: node.kubernetes.io/memory-pressure
+              effect: NoSchedule
+              operator: Exists
+          volumes:
+          - name: ssh-config-volume
+            configMap:
+              name: ssh-config
+              items:
+              - key: config
+                path: config
+          - name: ssh-hosts-volume
+            configMap:
+              name: ssh-hosts
+              items:
+              - key: known_hosts
+                path: known_hosts
+          - name: ssh-key-volume
+            secret:
+              secretName: ssh-key-secret
+              defaultMode: 0600 
+          - name: repo-key-volume
+            secret:
+              secretName: repo-key-secret
+              defaultMode: 0600 

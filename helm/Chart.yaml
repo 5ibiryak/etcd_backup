@@ -1,0 +1,4 @@
+apiVersion: v2
+name: Job_backup_etcd
+type: application
+appVersion: "1.16.0"

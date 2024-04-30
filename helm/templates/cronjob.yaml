@@ -1,0 +1,114 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: etcd-backup
+spec:
+  schedule: "* 1 * * *"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  concurrencyPolicy: Allow
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: etcd-backup
+            image: registry.k8s.io/etcd:3.5.9-0
+            imagePullPolicy: Always
+            env:
+            - name: ETCDCTL_API
+              value: "3"
+            - name: ETCDCTL_ENDPOINTS
+              value: "https://127.0.0.1:2379"
+            - name: ETCDCTL_CACERT
+              value: "/etc/kubernetes/pki/etcd/ca.crt"
+            - name: ETCDCTL_CERT
+              value: "/etc/kubernetes/pki/etcd/healthcheck-client.crt"
+            - name: ETCDCTL_KEY
+              value: "/etc/kubernetes/pki/etcd/healthcheck-client.key"
+            args: ["etcdctl", "snapshot", "save", "/data/etcd-backup/etcd-snapshot.db"]
+            volumeMounts:
+            - mountPath: /etc/kubernetes/pki/etcd
+              name: etcd-certs
+              readOnly: true
+            - mountPath: /data/etcd-backup
+              name: etcd-backup
+          - name: restic-sync-backup
+            image: restic/restic:0.16.4
+            env:
+            - name: RESTIC_PASSWORD_FILE
+              value: /root/passRepo
+            command: 
+            - restic
+            args:
+            - -r
+            - sftp:root@server.com:/backups/etcd
+            - --verbose 
+            - backup
+            - /data/etcd-backup/etcd-snapshot.db
+            volumeMounts:
+            - mountPath: /data/etcd-backup
+              name: etcd-backup
+            - mountPath: /root/.ssh/id_rsa
+              name: ssh-key-volume
+              subPath: ssh-privatekey
+              readOnly: true
+            - mountPath: /root/.ssh/config
+              name: ssh-config-volume
+              subPath: config
+              readOnly: true
+            - mountPath: /root/.ssh/known_hosts
+              name: ssh-hosts-volume
+              subPath: known_hosts
+              readOnly: true
+            - mountPath: /root/passRepo
+              name: repo-key-volume
+              subPath: ssh-privatekey
+              readOnly: true
+          restartPolicy: OnFailure
+          hostNetwork: true
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                    - key: node-role.kubernetes.io/etcd-backup
+                      operator: Exists
+          imagePullSecrets:
+          - name: plariumsouth
+          tolerations:
+            - key: node-role.kubernetes.io/control-plane
+              effect: NoSchedule
+              operator: Exists
+            - key: node.kubernetes.io/memory-pressure
+              effect: NoSchedule
+              operator: Exists
+          volumes:
+          - name: etcd-certs
+            hostPath:
+              path: /etc/kubernetes/pki/etcd
+              type: Directory
+          - name: etcd-backup
+            hostPath:
+              path: /data/etcd-backup
+              type: DirectoryOrCreate
+          - name: ssh-config-volume
+            configMap:
+              name: ssh-config
+              items:
+              - key: config
+                path: config
+          - name: ssh-hosts-volume
+            configMap:
+              name: ssh-hosts
+              items:
+              - key: known_hosts
+                path: known_hosts
+          - name: ssh-key-volume
+            secret:
+              secretName: ssh-key-secret
+              defaultMode: 0600 
+          - name: repo-key-volume
+            secret:
+              secretName: repo-key-secret
+              defaultMode: 0600 

@@ -1,0 +1,8 @@
+### you need add stroke from restic server known_host
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ssh-hosts
+data:
+  known_hosts: |
+    <ssh known host>
